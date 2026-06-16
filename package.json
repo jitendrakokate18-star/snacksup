@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
   "dev": "vite",
-  "build": "vite build",
+  "build": "vite build --logLevel silent",
   "preview": "vite preview",
   "typecheck": "tsc -p tsconfig.json --noEmit"
-},
+}
   "dependencies": {
     "html2canvas": "^1.4.1"
   },
