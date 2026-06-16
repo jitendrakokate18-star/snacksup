@@ -1,15 +1,5 @@
 import { useRef, useState } from "react";
 import { useRoute, useLocation } from "wouter";
-import {
-  useGetMix,
-  useToggleLike,
-  useToggleReaction,
-  useListComments,
-  useAddComment,
-  getGetMixQueryKey,
-  getListCommentsQueryKey,
-} from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useSessionManager } from "@/hooks/use-session-manager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +10,12 @@ const REACTION_EMOJIS = ["🔥", "😱", "🤢", "🤩"];
 
 type SliderItem = { name: string; amount: number; unit: string };
 type Toppings = { cheese: string; butter: boolean; coriander: boolean };
+
+interface Comment {
+  id: number;
+  content: string;
+  createdAt: string;
+}
 
 function ShareCard({
   mix,
@@ -113,7 +109,7 @@ function ShareCard({
 
       <div style={{ textAlign: "center", fontSize: 9, color: "#333", lineHeight: 1.6 }}>
         <div>#{mix.id} · {new Date(mix.createdAt).toLocaleDateString("en-IN")}</div>
-        <div style={{ marginTop: 2, letterSpacing: 2 }}>SNACKSUP.REPLIT.APP</div>
+        <div style={{ marginTop: 2, letterSpacing: 2 }}>SNACKSUP.VERCEL.APP</div>
         <div style={{ marginTop: 4 }}>★ ★ ★</div>
       </div>
     </div>
@@ -124,54 +120,81 @@ export default function MixDetail() {
   const [matched, params] = useRoute("/mix/:id");
   const [, navigate] = useLocation();
   const { token } = useSessionManager();
-  const queryClient = useQueryClient();
   const cardRef = useRef<HTMLDivElement>(null);
   const [showShare, setShowShare] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [downloading, setDownloading] = useState(false);
 
-  const id = matched && params?.id ? parseInt(params.id, 10) : 0;
+  const id = matched && params?.id ? parseInt(params.id, 10) : 1;
 
-  const { data: mix, isLoading } = useGetMix(
-    id,
-    token ? { sessionToken: token } : undefined,
-    { query: { enabled: id > 0, queryKey: getGetMixQueryKey(id) } }
-  );
-  const { data: comments } = useListComments(id, {
-    query: { enabled: id > 0, queryKey: getListCommentsQueryKey(id) },
-  });
-  const toggleLike = useToggleLike();
-  const toggleReaction = useToggleReaction();
-  const addComment = useAddComment();
+  // Mock static layout context replacing Replit database calls
+  const [mix, setMix] = useState(() => ({
+    id: id,
+    name: "The Midnight Hypercrunch",
+    type: "bag",
+    mainChips: ["Flamin' Hot Cheetos", "Doritos Nacho Cheese"],
+    secondaryItems: [{ name: "Roasted Peanuts", amount: 20, unit: "g" }],
+    spices: [{ name: "Chili Powder", amount: 2, unit: "pinch" }],
+    veggies: [],
+    sauces: [],
+    toppings: { cheese: "none", butter: false, coriander: false },
+    createdAt: new Date().toISOString(),
+    likesCount: 24,
+    hasLiked: false,
+    reactions: { "🔥": 12, "😱": 4 } as Record<string, number>,
+    userReactions: [] as string[]
+  }));
+
+  const [comments, setComments] = useState<Comment[]>([
+    { id: 1, content: "This combo goes crazy absolute legendary level stuff.", createdAt: new Date(Date.now() - 3600000).toISOString() },
+    { id: 2, content: "My stomach hurts just reading this. 10/10.", createdAt: new Date(Date.now() - 1800000).toISOString() }
+  ]);
+
+  const isLoading = false;
 
   const handleLike = () => {
     if (!token || !mix) return;
-    toggleLike.mutate(
-      { id: mix.id, data: { sessionToken: token } },
-      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetMixQueryKey(id) }) }
-    );
+    setMix(prev => {
+      const updatedHasLiked = !prev.hasLiked;
+      return {
+        ...prev,
+        hasLiked: updatedHasLiked,
+        likesCount: updatedHasLiked ? prev.likesCount + 1 : prev.likesCount - 1
+      };
+    });
   };
 
   const handleReact = (emoji: string) => {
     if (!token || !mix) return;
-    toggleReaction.mutate(
-      { id: mix.id, data: { sessionToken: token, emoji } },
-      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetMixQueryKey(id) }) }
-    );
+    setMix(prev => {
+      const currentReactions = { ...prev.reactions };
+      let updatedUserReactions = [...prev.userReactions];
+
+      if (updatedUserReactions.includes(emoji)) {
+        updatedUserReactions = updatedUserReactions.filter(r => r !== emoji);
+        currentReactions[emoji] = Math.max(0, (currentReactions[emoji] ?? 1) - 1);
+      } else {
+        updatedUserReactions.push(emoji);
+        currentReactions[emoji] = (currentReactions[emoji] ?? 0) + 1;
+      }
+
+      return {
+        ...prev,
+        userReactions: updatedUserReactions,
+        reactions: currentReactions
+      };
+    });
   };
 
   const handleAddComment = () => {
     if (!commentText.trim() || commentText.length > 100) return;
-    addComment.mutate(
-      { id, data: { content: commentText.trim() } },
-      {
-        onSuccess: () => {
-          setCommentText("");
-          queryClient.invalidateQueries({ queryKey: getListCommentsQueryKey(id) });
-          queryClient.invalidateQueries({ queryKey: getGetMixQueryKey(id) });
-        },
-      }
-    );
+    const newComment: Comment = {
+      id: comments.length + 1,
+      content: commentText.trim(),
+      createdAt: new Date().toISOString()
+    };
+    setComments([newComment, ...comments]);
+    setCommentText("");
   };
 
   const handleRemix = () => {
@@ -233,8 +256,8 @@ export default function MixDetail() {
   const veggies = (mix.veggies as SliderItem[]) ?? [];
   const sauces = (mix.sauces as SliderItem[]) ?? [];
   const toppings = (mix.toppings as Toppings) ?? { cheese: "none", butter: false, coriander: false };
-  const userReactions = (mix.userReactions as string[]) ?? [];
-  const reactions = (mix.reactions as Record<string, number>) ?? {};
+  const userReactions = mix.userReactions ?? [];
+  const reactions = mix.reactions ?? {};
 
   const chaosScore = calculateChaosScore({ mainChips, secondaryItems, spices, veggies, sauces, toppings });
   const chaos = getChaosLabel(chaosScore);
@@ -353,13 +376,14 @@ export default function MixDetail() {
           </div>
 
           <div className="px-8 pb-6 pt-2 border-t border-border space-y-4">
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {REACTION_EMOJIS.map((emoji) => {
                 const count = reactions[emoji] ?? 0;
                 const hasReacted = userReactions.includes(emoji);
                 return (
                   <button
                     key={emoji}
+                    type="button"
                     onClick={() => handleReact(emoji)}
                     className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-bold transition-all ${
                       hasReacted
@@ -376,6 +400,7 @@ export default function MixDetail() {
 
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={handleLike}
                 className={`flex items-center gap-2 text-lg font-black transition-all ${
                   mix.hasLiked ? "text-primary" : "text-muted-foreground hover:text-primary"
@@ -444,7 +469,7 @@ export default function MixDetail() {
             <Button
               size="sm"
               onClick={handleAddComment}
-              disabled={!commentText.trim() || addComment.isPending}
+              disabled={!commentText.trim()}
               className="shrink-0"
             >
               Post
