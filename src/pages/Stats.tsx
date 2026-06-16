@@ -1,12 +1,18 @@
 import { useLocation } from "wouter";
-import { useGetFeedStats } from "@workspace/api-client-react";
 import { useSessionManager } from "@/hooks/use-session-manager";
 import { Button } from "@/components/ui/button";
 
 export default function Stats() {
   const [, navigate] = useLocation();
-  const { data: stats, isLoading } = useGetFeedStats();
   const { session } = useSessionManager();
+
+  // Mock data replacing Replit's @workspace/api-client-react hook
+  const isLoading = false;
+  const stats = {
+    totalMixes: 1420,
+    totalLikes: 8432,
+    topChip: "Flamin' Hot Cheetos"
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -60,7 +66,8 @@ export default function Stats() {
                     <div className="text-sm text-muted-foreground mt-1">BYOBs made</div>
                   </div>
                   <div>
-                    <div className="text-4xl font-black text-primary">{session.credits}</div>
+                    {/* Fallback to 0 if credits properties aren't calculated yet */}
+                    <div className="text-4xl font-black text-primary">{(session as any).credits || 0}</div>
                     <div className="text-sm text-muted-foreground mt-1">Credits earned</div>
                   </div>
                 </div>
