@@ -1,13 +1,5 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import {
-  useListMixes,
-  useToggleLike,
-  useToggleReaction,
-  getListMixesQueryKey,
-  type Mix,
-} from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useSessionManager } from "@/hooks/use-session-manager";
 import { Button } from "@/components/ui/button";
 import { calculateChaosScore, getChaosLabel } from "@/lib/chaos";
@@ -20,32 +12,112 @@ type FilterType = "all" | "bag" | "bowl";
 type SliderItem = { name: string; amount: number; unit: string };
 type Toppings = { cheese: string; butter: boolean; coriander: boolean };
 
+// Type mapping to keep the original layout intact
+type Mix = {
+  id: number;
+  name: string;
+  type: "bag" | "bowl";
+  mainChips: string[];
+  secondaryItems?: SliderItem[];
+  spices?: SliderItem[];
+  veggies?: SliderItem[];
+  sauces?: SliderItem[];
+  toppings?: Toppings;
+  createdAt: string;
+  sessionToken: string;
+  likesCount: number;
+  hasLiked: boolean;
+  commentsCount: number;
+  reactions: Record<string, number>;
+  userReactions: string[];
+};
+
+// High-quality mock data populated right into the UI loops
+const INITIAL_MIXES: Mix[] = [
+  {
+    id: 1,
+    name: "The Midnight Hypercrunch",
+    type: "bag",
+    mainChips: ["Flamin' Hot Cheetos", "Doritos Nacho Cheese"],
+    secondaryItems: [{ name: "Roasted Peanuts", amount: 20, unit: "g" }],
+    spices: [{ name: "Chili Powder", amount: 2, unit: "pinch" }],
+    createdAt: new Date().toISOString(),
+    sessionToken: "sample-token",
+    likesCount: 24,
+    hasLiked: false,
+    commentsCount: 3,
+    reactions: { "🔥": 12, "😱": 4 },
+    userReactions: []
+  },
+  {
+    id: 2,
+    name: "Classic Cinema Remix",
+    type: "bowl",
+    mainChips: ["Lays Classic Salted", "Kurkure Masala Munch"],
+    toppings: { cheese: "cheddar", butter: true, coriander: true },
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    sessionToken: "another-token",
+    likesCount: 42,
+    hasLiked: true,
+    commentsCount: 7,
+    reactions: { "🤩": 18, "🔥": 9 },
+    userReactions: ["🤩"]
+  }
+];
+
 export default function Wall() {
   const [, navigate] = useLocation();
   const { token } = useSessionManager();
-  const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortBy>("newest");
   const [filterType, setFilterType] = useState<FilterType>("all");
-
-  const queryParams = { limit: 100, offset: 0, sortBy, filterType, sessionToken: token ?? undefined };
-  const { data: mixes, isLoading } = useListMixes(queryParams, {
-    query: { queryKey: getListMixesQueryKey(queryParams) },
-  });
-  const toggleLike = useToggleLike();
-  const toggleReaction = useToggleReaction();
-
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: getListMixesQueryKey(queryParams) });
+  
+  // Local reactive state replacing the Replit database fetcher
+  const [mixes, setMixes] = useState<Mix[]>(INITIAL_MIXES);
+  const isLoading = false;
 
   const handleLike = (mixId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!token) return;
-    toggleLike.mutate({ id: mixId, data: { sessionToken: token } }, { onSuccess: invalidate });
+    setMixes(prevMixes =>
+      prevMixes.map(mix => {
+        if (mix.id === mixId) {
+          const updatedHasLiked = !mix.hasLiked;
+          return {
+            ...mix,
+            hasLiked: updatedHasLiked,
+            likesCount: updatedHasLiked ? mix.likesCount + 1 : mix.likesCount - 1
+          };
+        }
+        return mix;
+      })
+    );
   };
 
   const handleReact = (mixId: number, emoji: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!token) return;
-    toggleReaction.mutate({ id: mixId, data: { sessionToken: token, emoji } }, { onSuccess: invalidate });
+    setMixes(prevMixes =>
+      prevMixes.map(mix => {
+        if (mix.id === mixId) {
+          const userReactions = mix.userReactions ?? [];
+          const reactions = { ...mix.reactions };
+          let updatedUserReactions: string[];
+
+          if (userReactions.includes(emoji)) {
+            updatedUserReactions = userReactions.filter(r => r !== emoji);
+            reactions[emoji] = Math.max(0, (reactions[emoji] ?? 1) - 1);
+          } else {
+            updatedUserReactions = [...userReactions, emoji];
+            reactions[emoji] = (reactions[emoji] ?? 0) + 1;
+          }
+
+          return {
+            ...mix,
+            userReactions: updatedUserReactions,
+            reactions
+          };
+        }
+        return mix;
+      })
+    );
   };
 
   const handleRemix = (mix: Mix, e: React.MouseEvent) => {
@@ -54,16 +126,24 @@ export default function Wall() {
       "snacksup_remix",
       JSON.stringify({
         mainChips: mix.mainChips,
-        secondaryItems: mix.secondaryItems,
-        spices: mix.spices,
-        veggies: mix.veggies,
-        sauces: mix.sauces,
-        toppings: mix.toppings,
+        secondaryItems: mix.secondaryItems || [],
+        spices: mix.spices || [],
+        veggies: mix.veggies || [],
+        sauces: mix.sauces || [],
+        toppings: mix.toppings || { cheese: "none", butter: false, coriander: false },
         type: mix.type,
       })
     );
     navigate(`/create/${mix.type}`);
   };
+
+  // Dynamic client-side sorting and filtering logic matching your setup parameters
+  const filteredMixes = mixes
+    .filter(mix => filterType === "all" || mix.type === filterType)
+    .sort((a, b) => {
+      if (sortBy === "mostLiked") return b.likesCount - a.likesCount;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -123,7 +203,7 @@ export default function Wall() {
           </div>
         )}
 
-        {!isLoading && (!mixes || mixes.length === 0) && (
+        {!isLoading && filteredMixes.length === 0 && (
           <div className="text-center py-24">
             <div className="text-6xl font-black text-muted-foreground/20 mb-4">EMPTY</div>
             <p className="text-muted-foreground">No mixes yet. Be the first one.</p>
@@ -133,20 +213,20 @@ export default function Wall() {
           </div>
         )}
 
-        {!isLoading && mixes && mixes.length > 0 && (
+        {!isLoading && filteredMixes.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {mixes.map((mix) => {
+            {filteredMixes.map((mix) => {
               const chips = mix.mainChips as string[];
               const isMyMix = mix.sessionToken === token;
-              const userReactions = (mix.userReactions as string[]) ?? [];
-              const reactions = (mix.reactions as Record<string, number>) ?? {};
+              const userReactions = mix.userReactions ?? [];
+              const reactions = mix.reactions ?? {};
               const chaosScore = calculateChaosScore({
                 mainChips: chips,
-                secondaryItems: (mix.secondaryItems as SliderItem[]) ?? [],
-                spices: (mix.spices as SliderItem[]) ?? [],
-                veggies: (mix.veggies as SliderItem[]) ?? [],
-                sauces: (mix.sauces as SliderItem[]) ?? [],
-                toppings: (mix.toppings as Toppings) ?? { cheese: "none", butter: false, coriander: false },
+                secondaryItems: mix.secondaryItems ?? [],
+                spices: mix.spices ?? [],
+                veggies: mix.veggies ?? [],
+                sauces: mix.sauces ?? [],
+                toppings: mix.toppings ?? { cheese: "none", butter: false, coriander: false },
               });
               const chaos = getChaosLabel(chaosScore);
               return (
@@ -178,7 +258,6 @@ export default function Wall() {
                   <h3 className="text-xl font-black tracking-tight mb-2 group-hover:text-primary transition-colors">
                     {mix.name}
                   </h3>
-
                   <div className="flex flex-wrap gap-1 mb-2">
                     {chips.slice(0, 3).map((chip) => (
                       <span key={chip} className="text-xs font-semibold bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
@@ -198,7 +277,7 @@ export default function Wall() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1 mb-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-wrap items-center gap-1 mb-3" onClick={(e) => e.stopPropagation()}>
                     {REACTION_EMOJIS.map((emoji) => {
                       const count = reactions[emoji] ?? 0;
                       const hasReacted = userReactions.includes(emoji);
@@ -220,7 +299,7 @@ export default function Wall() {
                   </div>
 
                   <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/50">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => handleLike(mix.id, e)}
                         className={`flex items-center gap-1.5 text-sm font-bold transition-all ${
@@ -232,7 +311,7 @@ export default function Wall() {
                         </svg>
                         {mix.likesCount}
                       </button>
-                      {(mix.commentsCount ?? 0) > 0 && (
+                      {mix.commentsCount > 0 && (
                         <span className="text-xs text-muted-foreground font-medium">
                           💬 {mix.commentsCount}
                         </span>
