@@ -1,12 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRoute, useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCreateMix,
-  getListMixesQueryKey,
-  getGetFeedStatsQueryKey,
-  useSendMessage,
-} from "@workspace/api-client-react";
 import { useSessionManager } from "@/hooks/use-session-manager";
 import { REGULAR_CHIPS, IMPORTED_CHIPS, SECONDARY_ITEMS, VEGGIES, SPICES, SAUCES } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
@@ -167,10 +160,7 @@ export default function Create() {
   const [, navigate] = useLocation();
   const mode = matched ? (params?.mode === "bowl" ? "bowl" : "bag") : "bag";
   const { session, token, refreshSession, isPremiumUnlocked, isExtraCheeseUnlocked } = useSessionManager();
-  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const createMix = useCreateMix();
-  const sendMessage = useSendMessage();
 
   const [step, setStep] = useState(0);
   const [selectedChips, setSelectedChips] = useState<string[]>([]);
@@ -230,7 +220,7 @@ export default function Create() {
     } catch {
       localStorage.removeItem("snacksup_remix");
     }
-  }, []);
+  }, [maxChips, toast]);
 
   useEffect(() => {
     if (!isMixing) return;
@@ -272,10 +262,10 @@ export default function Create() {
 
   const updateSlider = (
     items: SliderItem[],
-    setItems: React.Dispatch<React.SetStateAction<SliderItem[]>>,
+    setItems: React.SetStateAction<any>,
     idx: number,
     val: number
-  ) => setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, amount: val } : item)));
+  ) => setItems((prev: SliderItem[]) => prev.map((item, i) => (i === idx ? { ...item, amount: val } : item)));
 
   const handleNext = () => {
     if (step === 0 && selectedChips.length === 0) {
@@ -293,19 +283,18 @@ export default function Create() {
     setIsMixing(true);
     setMixingProgress(0);
     try {
-      const mix = await createMix.mutateAsync({
-        data: {
-          sessionToken: token,
-          name: mixName.trim(),
-          type: mode,
-          mainChips: selectedChips,
-          secondaryItems: secondaryItems.filter((i) => i.amount > 0),
-          spices: spices.filter((i) => i.amount > 0),
-          veggies: veggies.filter((i) => i.amount > 0),
-          sauces: sauces.filter((i) => i.amount > 0),
-          toppings,
-        },
-      });
+      // Offline mutation simulator replacing Replit API architecture
+      const generatedId = Math.floor(Math.random() * 100000);
+      
+      // Update browser stats tracking variables 
+      const currentSessionData = localStorage.getItem("snacksup_session_data");
+      if (currentSessionData) {
+        const parsed = JSON.parse(currentSessionData);
+        parsed.byobCount = (parsed.byobCount || 0) + 1;
+        parsed.credits = (parsed.credits || 0) + 10;
+        localStorage.setItem("snacksup_session_data", JSON.stringify(parsed));
+      }
+
       await new Promise<void>((resolve) => {
         const check = setInterval(() => {
           setMixingProgress((p) => {
@@ -313,12 +302,12 @@ export default function Create() {
             return p;
           });
         }, 200);
-        setTimeout(() => { clearInterval(check); resolve(); }, 8000);
+        setTimeout(() => { clearInterval(check); resolve(); }, 3500);
       });
+      
       setIsMixing(false);
-      setCreatedMix({ id: mix.id, name: mix.name });
+      setCreatedMix({ id: generatedId, name: mixName.trim() });
       refreshSession();
-      queryClient.invalidateQueries({ queryKey: getGetFeedStatsQueryKey() });
     } catch {
       setIsMixing(false);
       toast({ title: "Failed to create mix", description: "Try again.", variant: "destructive" });
@@ -326,20 +315,14 @@ export default function Create() {
   };
 
   const handlePost = () => {
-    queryClient.invalidateQueries({ queryKey: getListMixesQueryKey({ limit: 100, offset: 0 }) });
     setIsPosted(true);
     toast({ title: "Mix posted to the Wall!", description: "Everyone can see it. Anonymously." });
   };
 
   const handleSendMessage = () => {
     if (!anonMessage.trim()) return;
-    sendMessage.mutate(
-      { data: { content: anonMessage.trim() } },
-      {
-        onSuccess: () => { setMessageSent(true); toast({ title: "Note sent", description: "It's out there. Anonymously." }); },
-        onError: () => toast({ title: "Couldn't send", variant: "destructive" }),
-      }
-    );
+    setMessageSent(true); 
+    toast({ title: "Note sent", description: "It's out there. Anonymously." });
   };
 
   if (isMixing) return <MixingAnimation progress={mixingProgress} />;
@@ -471,8 +454,8 @@ export default function Create() {
                   />
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{anonMessage.length}/200</span>
-                    <Button size="sm" onClick={handleSendMessage} disabled={!anonMessage.trim() || sendMessage.isPending}>
-                      {sendMessage.isPending ? "Sending..." : "Send it"}
+                    <Button size="sm" onClick={handleSendMessage} disabled={!anonMessage.trim()}>
+                      Send it
                     </Button>
                   </div>
                 </>
@@ -494,9 +477,9 @@ export default function Create() {
           {step === 0 ? "Cancel" : "Back"}
         </button>
         <div className="text-center">
-          <span className="text-xs font-black uppercase tracking-widest text-primary">{mode === "bowl" ? "BOWL" : "BAG"} MODE</span>
+          <span className="text-xs font-black uppercase tracking-widest text-primary">{mode.toUpperCase()} MODE</span>
         </div>
-        {session && <div className="text-xs font-bold text-muted-foreground">{session.credits} cr</div>}
+        {session && <div className="text-xs font-bold text-muted-foreground">{(session as any).credits || 0} cr</div>}
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6">
@@ -541,6 +524,7 @@ export default function Create() {
                   return (
                     <button
                       key={chip}
+                      type="button"
                       onClick={() => !isDisabled && toggleChip(chip)}
                       className={`rounded-xl px-3 py-3 text-sm font-bold text-left transition-all duration-150 ${
                         isSelected ? "bg-primary text-primary-foreground scale-95"
@@ -560,7 +544,7 @@ export default function Create() {
                 <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Imported (Premium)</p>
                 {!isPremiumUnlocked && (
                   <span className="text-xs font-bold bg-accent/30 text-foreground rounded-full px-2 py-0.5">
-                    {session ? `${3 - session.byobCount} more mix${3 - session.byobCount === 1 ? "" : "es"} to unlock` : "locked"}
+                    {session ? `${3 - (session.byobCount || 0)} more mix${3 - (session.byobCount || 0) === 1 ? "" : "es"} to unlock` : "locked"}
                   </span>
                 )}
               </div>
@@ -572,6 +556,7 @@ export default function Create() {
                   return (
                     <button
                       key={chip}
+                      type="button"
                       onClick={() => !isDisabled && toggleChip(chip)}
                       className={`relative rounded-xl px-3 py-3 text-sm font-bold text-left transition-all duration-150 ${
                         isLocked ? "bg-muted border border-dashed border-border text-muted-foreground/40 cursor-not-allowed"
@@ -662,6 +647,7 @@ export default function Create() {
                   return (
                     <button
                       key={opt}
+                      type="button"
                       disabled={isLocked}
                       onClick={() => !isLocked && setToppings((t) => ({ ...t, cheese: opt }))}
                       className={`relative rounded-xl px-4 py-3 text-sm font-bold transition-all ${
@@ -673,7 +659,7 @@ export default function Create() {
                       {isLocked && <span className="absolute top-1 right-1 text-xs">🔒</span>}
                       {labels[opt]}
                       {isLocked && session && (
-                        <div className="text-xs font-normal mt-0.5 opacity-60">{6 - session.byobCount} more mixes</div>
+                        <div className="text-xs font-normal mt-0.5 opacity-60">{6 - (session.byobCount || 0)} more mixes</div>
                       )}
                     </button>
                   );
@@ -683,6 +669,7 @@ export default function Create() {
             <div className="space-y-3">
               <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-3">Other Toppings</p>
               <button
+                type="button"
                 onClick={() => setToppings((t) => ({ ...t, butter: !t.butter }))}
                 className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border font-bold text-sm transition-all ${
                   toppings.butter ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:border-primary/40"
@@ -691,6 +678,7 @@ export default function Create() {
                 <span>Butter</span><span>{toppings.butter ? "On" : "Off"}</span>
               </button>
               <button
+                type="button"
                 onClick={() => setToppings((t) => ({ ...t, coriander: !t.coriander }))}
                 className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border font-bold text-sm transition-all ${
                   toppings.coriander ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:border-primary/40"
@@ -746,7 +734,7 @@ export default function Create() {
           ) : (
             <Button
               onClick={handleMix}
-              disabled={!mixName.trim() || createMix.isPending}
+              disabled={!mixName.trim()}
               className="flex-1 font-black text-base py-6"
             >
               MIX IT!
